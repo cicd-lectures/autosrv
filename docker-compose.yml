@@ -1,0 +1,23 @@
+---
+version: "2.4"
+
+volumes:
+  registry-auth: {}
+  registry-data: {}
+
+services:
+  deployer:
+    image: golang:1.15-alpine
+    volumes:
+      - ./:/app
+    working_dir: /app
+    command: ["go", "run", "./cmd/deployer/main.go"]
+
+  registry:
+    image: registry:2.7
+    ports:
+      - 5000:5000
+    volumes:
+      - registry-auth:/var/lib/registry
+      - registry-data:/auth
+      - ./config/registry.yml:/etc/docker/registry/config.yml

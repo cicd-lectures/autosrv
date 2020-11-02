@@ -1,0 +1,33 @@
+---
+version: 0.1
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+# TODO: explore auth options.
+# auth:
+#   silly:
+#     realm: silly-realm
+#     service: silly-service
+#   token:
+#     autoredirect: true
+#     realm: token-realm
+#     service: token-service
+#     issuer: registry-token-issuer
+#     rootcertbundle: /root/certs/bundle
+#   htpasswd:
+#     realm: basic-realm
+#     path: /path/to/htpasswd
+
+http:
+  addr: 0.0.0.0:5000
+  host: http://registry.localhost:5000
+
+notifications:
+  events:
+    includereferences: true
+  endpoints:
+    - name: deployer
+      url: http://deployer:8080/notification
+      timeout: 500ms
+      threshold: 5
+      backoff: 1s
