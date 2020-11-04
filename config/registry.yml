@@ -28,6 +28,6 @@ notifications:
   endpoints:
     - name: deployer
       url: http://deployer:8080/notification
-      timeout: 500ms
+      timeout: 2s
       threshold: 5
       backoff: 1s

@@ -10,6 +10,7 @@ services:
     image: golang:1.15-alpine
     volumes:
       - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     working_dir: /app
     command: ["go", "run", "./cmd/deployer/main.go"]
 
