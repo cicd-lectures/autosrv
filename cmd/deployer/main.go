@@ -8,7 +8,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
+	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -24,20 +25,24 @@ type Envelope struct {
 }
 
 type Event struct {
-	ID     string `json:"id"`
-	Action string `json:"action"`
-	Target Target `json:"target"`
+	ID      string  `json:"id"`
+	Action  string  `json:"action"`
+	Target  Target  `json:"target"`
+	Request Request `json:"Request"`
 }
 
 type Target struct {
 	Repository string `json:"repository"`
 	Tag        string `json:"Tag"`
 	Digest     string `json:"digest"`
-	URL        string `json:"url"`
+}
+
+type Request struct {
+	Host string `json:"host"`
 }
 
 type Deployer interface {
-	Deploy(context.Context, Target) error
+	Deploy(context.Context, Target, Request) error
 }
 
 func handleNotification(d Deployer) http.HandlerFunc {
@@ -61,7 +66,7 @@ func handleNotification(d Deployer) http.HandlerFunc {
 					evt.Target.Tag = "latest"
 				}
 
-				if err := d.Deploy(r.Context(), evt.Target); err != nil {
+				if err := d.Deploy(r.Context(), evt.Target, evt.Request); err != nil {
 					log.Printf("Unable to deploy target: %v", err)
 					http.Error(w, "unable to deploy target", http.StatusInternalServerError)
 					return
@@ -77,11 +82,12 @@ func handleNotification(d Deployer) http.HandlerFunc {
 }
 
 type DockerDeployer struct {
-	docker Docker
+	docker         Docker
+	routingNetwork types.NetworkResource
 }
 
-func NewDockerDeployer(d Docker) *DockerDeployer {
-	return &DockerDeployer{docker: d}
+func NewDockerDeployer(d Docker, net types.NetworkResource) *DockerDeployer {
+	return &DockerDeployer{docker: d, routingNetwork: net}
 }
 
 type Docker interface {
@@ -96,13 +102,9 @@ type Docker interface {
 	ImagePull(ctx context.Context, refStr string, options types.ImagePullOptions) (io.ReadCloser, error)
 }
 
-func (d DockerDeployer) Deploy(ctx context.Context, t Target) error {
+func (d DockerDeployer) Deploy(ctx context.Context, t Target, r Request) error {
 	// Evaluate container name.
 	cName := strings.ReplaceAll(t.Repository, "/", "_")
-	imgURL, err := url.Parse(t.URL)
-	if err != nil {
-		return fmt.Errorf("unable to parse image URL: %w", err)
-	}
 
 	// Find any existing container running carrying the normalized name.
 	olds, err := d.docker.ContainerList(ctx, types.ContainerListOptions{
@@ -141,7 +143,7 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target) error {
 	}
 
 	// Pull the image from the registry to the new host.
-	imgRef := imgURL.Host + "/" + t.Repository + ":" + t.Tag
+	imgRef := r.Host + "/" + t.Repository + ":" + t.Tag
 	log.Println("Pulling image", imgRef)
 
 	st, err := d.docker.ImagePull(ctx, imgRef, types.ImagePullOptions{})
@@ -159,11 +161,21 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target) error {
 	c, err := d.docker.ContainerCreate(
 		ctx,
 		&container.Config{
-			Image:  imgRef,
-			Labels: map[string]string{},
+			Image: imgRef,
+			Labels: map[string]string{
+				traefikRouterName(t.Repository) + ".rule": traefikRouterRule(t.Repository),
+				"traefik.docker.network":                  d.routingNetwork.Name,
+				"traefik.enable":                          "true",
+			},
 		},
 		&container.HostConfig{},
-		&network.NetworkingConfig{},
+		&network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				d.routingNetwork.Name: {
+					NetworkID: d.routingNetwork.ID,
+				},
+			},
+		},
 		cName,
 	)
 	if err != nil {
@@ -179,13 +191,37 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target) error {
 	return nil
 }
 
+func traefikRouterName(repository string) string {
+	return fmt.Sprintf("traefik.http.routers.%s", strings.ReplaceAll(repository, "/", ""))
+}
+
+func traefikRouterRule(repository string) string {
+	return "Path(`/" + path.Join("apps", repository) + "`)"
+}
+
 func main() {
+	if len(os.Args) != 2 {
+		log.Fatalf("Invalid number of arguments")
+	}
+
+	log.Printf("Starting deployer connected to network %q", os.Args[1])
+
 	c, err := docker.NewClientWithOpts(docker.FromEnv, docker.WithAPIVersionNegotiation())
 	if err != nil {
 		log.Fatalf("unable to create docker client: %v", err)
 	}
 
-	http.Handle("/notification", http.HandlerFunc(handleNotification(NewDockerDeployer(c))))
+	nets, err := c.NetworkList(context.Background(), types.NetworkListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", os.Args[1])),
+	})
+	if err != nil {
+		log.Fatalf("unable to collect network information: %v", err)
+	}
+	if len(nets) != 1 {
+		log.Fatalf("network %q is not unique on the host, please clean it up", os.Args[1])
+	}
+
+	http.Handle("/notification", http.HandlerFunc(handleNotification(NewDockerDeployer(c, nets[0]))))
 
 	log.Println("Listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
