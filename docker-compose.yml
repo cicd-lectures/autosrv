@@ -3,7 +3,7 @@ version: "2.4"
 
 networks:
   internal:
-    name: ${NETWORK_NAME:-autosrv_internal}
+    name: ${NETWORK_NAME}
 
 volumes:
   registry-auth: {}
@@ -28,7 +28,7 @@ services:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock:ro
     working_dir: /app
-    command: ["go", "run", "./cmd/deployer/main.go", "${NETWORK_NAME:-autosrv_internal}"]
+    command: ["go", "run", "./cmd/deployer/main.go", "${NETWORK_NAME}"]
     labels:
       - "traefik.enable=false"
     networks:
@@ -41,8 +41,8 @@ services:
       - registry-data:/auth
       - ./config/registry.yml:/etc/docker/registry/config.yml
     labels:
-      - "traefik.http.routers.registry.rule=Host(`registry.localhost`)"
-      - "traefik.docker.network=${NETWORK_NAME:-autosrv_internal}"
+      - "traefik.http.routers.registry.rule=Host(`${AUTOSRV_HOSTNAME}`)"
+      - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.services.registry.loadbalancer.server.port=5000"
       - "traefik.http.services.registry.loadbalancer.passhostheader=true"
     networks:
