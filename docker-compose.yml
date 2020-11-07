@@ -12,13 +12,19 @@ volumes:
 services:
   ingress:
     image: traefik:v2.3
-    command: --providers.docker
+    command:
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=${NETWORK_NAME}
+      - --providers.file.directory=/traefik.conf.d/
+      - --entryPoints.web.address=:80
+      - --entryPoints.websecure.address=:443
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    labels:
-      - "traefik.enable=false"
+      - ./config/traefik.yml:/traefik.conf.d/traefik.yml
+      - ./config/certificates:/certificates/
     networks:
       - internal
 
@@ -29,8 +35,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     working_dir: /app
     command: ["go", "run", "./cmd/deployer/main.go", "${NETWORK_NAME}"]
-    labels:
-      - "traefik.enable=false"
     networks:
       - internal
 
@@ -41,7 +45,10 @@ services:
       - registry-data:/auth
       - ./config/registry.yml:/etc/docker/registry/config.yml
     labels:
-      - "traefik.http.routers.registry.rule=Host(`${AUTOSRV_HOSTNAME}`)"
+      - traefik.enable=true
+      - traefik.http.routers.registry.rule=Host(`${AUTOSRV_HOSTNAME}`)
+      - traefik.http.routers.registry.tls=true
+      - traefik.http.routers.registry.entrypoints=websecure
       - "traefik.docker.network=${NETWORK_NAME}"
       - "traefik.http.services.registry.loadbalancer.server.port=5000"
       - "traefik.http.services.registry.loadbalancer.passhostheader=true"

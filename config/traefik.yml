@@ -1,0 +1,21 @@
+## Traefik Dynamic Configuration
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certificates/cert.pem
+        keyFile: /certificates/cert-key.pem
+
+http:
+  middlewares:
+    redirect-to-https:
+      redirectscheme:
+        scheme: https
+        permanent: true
+  routers:
+    redirs:
+      rule: "hostregexp(`{host:.+}`)"
+      service: "noop@internal"
+      entrypoints: web
+      middlewares:
+        - redirect-to-https

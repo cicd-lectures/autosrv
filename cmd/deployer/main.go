@@ -163,9 +163,11 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target, r Request) error {
 		&container.Config{
 			Image: imgRef,
 			Labels: map[string]string{
-				traefikRouterName(t.Repository) + ".rule": traefikRouterRule(t.Repository),
-				"traefik.docker.network":                  d.routingNetwork.Name,
-				"traefik.enable":                          "true",
+				traefikRouterName(t.Repository) + ".rule":        traefikRouterRule(t.Repository),
+				traefikRouterName(t.Repository) + ".tls":         "true",
+				traefikRouterName(t.Repository) + ".entrypoints": "websecure",
+				"traefik.docker.network":                         d.routingNetwork.Name,
+				"traefik.enable":                                 "true",
 			},
 		},
 		&container.HostConfig{},
