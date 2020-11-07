@@ -1,0 +1,63 @@
+---
+version: "2.4"
+
+volumes:
+  traefik-certs: {}
+
+services:
+  ingress:
+    build:
+      dockerfile: ./image/traefik.Dockerfile
+      context: .
+    command:
+      - "--ping=true"
+      - "--ping.entrypoint=ping"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${NETWORK_NAME}"
+      ## Provider file is used to specify static certificate for local and dev setups
+      - "--providers.file.directory=/traefik.conf.d/"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.ping.address=:8888"
+      - "--certificatesResolvers.letsencrypt.acme.email=${LETS_ENCRYPT_EMAIL}"
+      - "--certificatesResolvers.letsencrypt.acme.storage=/acme-data/acme.json"
+      - "--certificatesResolvers.letsencrypt.acme.tlsChallenge=true"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "traefik-certs:/acme-data/"
+    restart: unless-stopped
+    read_only: true
+    cpus: "0.8"
+    mem_limit: "128M"
+    healthcheck:
+      test: ["CMD", "wget", "http://127.0.0.1:8888/ping", "--spider"]
+      interval: "2s"
+      timeout: "5s"
+      retries: 3
+      start_period: "5s"
+
+  deployer:
+    build:
+      dockerfile: "./image/deployer.Dockerfile"
+      context: "."
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    command:
+      - "-network"
+      - "${NETWORK_NAME}"
+      - "-resolver"
+      - "letsencrypt"
+
+  registry:
+    build:
+      dockerfile: "./image/registry.Dockerfile"
+      context: "."
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.registry.rule=Host(`${AUTOSRV_HOSTNAME}`)"
+      - "traefik.http.routers.registry.tls=true"
+      - "traefik.http.routers.registry.tls.certResolver=letsencrypt"
+      - "traefik.http.routers.registry.entrypoints=websecure"
+      - "traefik.docker.network=${NETWORK_NAME}"
+      - "traefik.http.services.registry.loadbalancer.server.port=5000"
+      - "traefik.http.services.registry.loadbalancer.passhostheader=true"

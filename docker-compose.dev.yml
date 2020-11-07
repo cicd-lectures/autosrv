@@ -1,0 +1,43 @@
+---
+version: "2.4"
+
+services:
+  ingress:
+    image: traefik:v2.3
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./config/traefik.yml:/traefik.conf.d/traefik.yml"
+      - "./config/certificates:/certificates/"
+    command:
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${NETWORK_NAME}"
+      - "--providers.file.directory=/traefik.conf.d/"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+
+  deployer:
+    image: golang:1.15-alpine
+    volumes:
+      - "./:/app"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    working_dir: "/app"
+    command:
+      - "go"
+      - "run"
+      - "./cmd/deployer/main.go"
+      - "-network"
+      - "${NETWORK_NAME}"
+
+  registry:
+    image: registry:2.7
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.registry.rule=Host(`${AUTOSRV_HOSTNAME}`)"
+      - "traefik.http.routers.registry.tls=true"
+      - "traefik.http.routers.registry.entrypoints=websecure"
+      - "traefik.docker.network=${NETWORK_NAME}"
+      - "traefik.http.services.registry.loadbalancer.server.port=5000"
+      - "traefik.http.services.registry.loadbalancer.passhostheader=true"
+    volumes:
+      - registry-data:/var/lib/registry
+      - ./config/registry.yml:/etc/docker/registry/config.yml
