@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"path"
 	"strings"
 	"time"
@@ -84,10 +84,11 @@ func handleNotification(d Deployer) http.HandlerFunc {
 type DockerDeployer struct {
 	docker         Docker
 	routingNetwork types.NetworkResource
+	certResolver   string
 }
 
-func NewDockerDeployer(d Docker, net types.NetworkResource) *DockerDeployer {
-	return &DockerDeployer{docker: d, routingNetwork: net}
+func NewDockerDeployer(d Docker, net types.NetworkResource, certResolver string) *DockerDeployer {
+	return &DockerDeployer{docker: d, routingNetwork: net, certResolver: certResolver}
 }
 
 type Docker interface {
@@ -161,14 +162,8 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target, r Request) error {
 	c, err := d.docker.ContainerCreate(
 		ctx,
 		&container.Config{
-			Image: imgRef,
-			Labels: map[string]string{
-				traefikRouterName(t.Repository) + ".rule":        traefikRouterRule(t.Repository),
-				traefikRouterName(t.Repository) + ".tls":         "true",
-				traefikRouterName(t.Repository) + ".entrypoints": "websecure",
-				"traefik.docker.network":                         d.routingNetwork.Name,
-				"traefik.enable":                                 "true",
-			},
+			Image:  imgRef,
+			Labels: d.containerLabels(t.Repository),
 		},
 		&container.HostConfig{},
 		&network.NetworkingConfig{
@@ -193,20 +188,35 @@ func (d DockerDeployer) Deploy(ctx context.Context, t Target, r Request) error {
 	return nil
 }
 
-func traefikRouterName(repository string) string {
-	return fmt.Sprintf("traefik.http.routers.%s", strings.ReplaceAll(repository, "/", ""))
-}
+func (d *DockerDeployer) containerLabels(repository string) map[string]string {
+	routerName := fmt.Sprintf("traefik.http.routers.%s", strings.ReplaceAll(repository, "/", ""))
 
-func traefikRouterRule(repository string) string {
-	return "Path(`/" + path.Join("apps", repository) + "`)"
+	labels := map[string]string{
+		routerName + ".rule":        "Path(`/" + path.Join("apps", repository) + "`)",
+		routerName + ".tls":         "true",
+		routerName + ".entrypoints": "websecure",
+		"traefik.docker.network":    d.routingNetwork.Name,
+		"traefik.enable":            "true",
+	}
+
+	if d.certResolver != "" {
+		labels[routerName+".tls.certResolver"] = d.certResolver
+	}
+
+	return labels
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatalf("Invalid number of arguments")
+	net := flag.String("network", "", "Network to bind on")
+	res := flag.String("resolver", "", "Certificate Resolver to use")
+
+	flag.Parse()
+
+	if *net == "" {
+		log.Fatalf("Binding network is required")
 	}
 
-	log.Printf("Starting deployer connected to network %q", os.Args[1])
+	log.Printf("Starting deployer connected to network %q", *net)
 
 	c, err := docker.NewClientWithOpts(docker.FromEnv, docker.WithAPIVersionNegotiation())
 	if err != nil {
@@ -214,16 +224,16 @@ func main() {
 	}
 
 	nets, err := c.NetworkList(context.Background(), types.NetworkListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", os.Args[1])),
+		Filters: filters.NewArgs(filters.Arg("name", *net)),
 	})
 	if err != nil {
 		log.Fatalf("unable to collect network information: %v", err)
 	}
 	if len(nets) != 1 {
-		log.Fatalf("network %q is not unique on the host, please clean it up", os.Args[1])
+		log.Fatalf("network %q is not unique on the host, please clean it up", *net)
 	}
 
-	http.Handle("/notification", http.HandlerFunc(handleNotification(NewDockerDeployer(c, nets[0]))))
+	http.Handle("/notification", http.HandlerFunc(handleNotification(NewDockerDeployer(c, nets[0], *res))))
 
 	log.Println("Listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))

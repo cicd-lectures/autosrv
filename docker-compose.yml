@@ -34,7 +34,12 @@ services:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock:ro
     working_dir: /app
-    command: ["go", "run", "./cmd/deployer/main.go", "${NETWORK_NAME}"]
+    command:
+      - "go"
+      - "run"
+      - "./cmd/deployer/main.go"
+      - "-network"
+      - "${NETWORK_NAME}"
     networks:
       - internal
 
