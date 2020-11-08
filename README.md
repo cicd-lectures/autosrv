@@ -22,7 +22,7 @@ Check that the following requirements are met on the machine where you want to r
 - An unrestricted Internet access (to download Docker images and go modules)
 - By default, the autosrv stack is published to `localhost`. If you plan to use another domain `<hostname>`:
   - Ensure that the domain `<hostname>` points to the public IP of your Docker Engine through `/etc/hosts` or through DNS
-  - Use the environment variable `AUTOSRV_HOSTNAME` (either export it on your shell, or change the default value in the file `.env`)
+  - Use the environment variable `AUTOSRV_HOSTNAME` (either export it on your shell, or change the default value in the file `dev.env`)
     to specify the new domain `<hostname>` instead of `localhost`.
   - Replace any occurence of `localhost` by `<hostname>` on the new instructions.
 - Docker Engine 20.03+ is installed and running with:
@@ -37,7 +37,7 @@ With the requirements checked, clone this repository, check the hostname and sta
 ```shell
 git clone https://github.com/jlevesy/autosrv
 cd ./autosrv
-docker-compose up -d
+make dev
 ```
 
 You can now pull the Docker image of a webservice and push it to the local registry:
@@ -72,6 +72,10 @@ X-Real-Ip: 172.18.0.1
 $ docker ps | grep whoami
 78ce36854ca8   localhost/foobiz/whoami:latest   "/whoami"                6 minutes ago    Up 6 minutes    80/tcp               foobiz_whoami
 ```
+
+## Cleaning up the project
+
+As soon as you're done with the project, run `make clean` to get rid of any resources created on your host.
 
 ## Components
 
